@@ -169,7 +169,20 @@ Instrucciones:
 - Usa formato markdown
 - Si no estás seguro de algo, dilo
 - Responde siempre en español
-- Cuando muestres código, usa bloques de código con el lenguaje apropiado"""
+- Cuando muestres código, usa bloques de código con el lenguaje apropiado
+- Cuando el usuario te proporcione código de su archivo, analízalo y responde basándote en él
+- Si sugieres cambios de código, muéstralos en bloques de código para que el usuario pueda aplicarlos"""
+
+CHAT_CONTEXT_TEMPLATE = """
+El usuario está trabajando en el archivo: {file_name}
+Lenguaje: {language}
+
+Código actual del archivo:
+```{language}
+{code}
+```
+
+"""
 
 
 class AzureOpenAIProvider(BaseLLMProvider):
@@ -267,9 +280,21 @@ class AzureOpenAIProvider(BaseLLMProvider):
             client = await self._get_client()
             
             language = context.language if context else "programación general"
+            system_content = CHAT_SYSTEM_PROMPT.format(language=language)
+            
+            # Si hay contexto de código, incluirlo en el system prompt
+            if context and context.code:
+                file_name = context.file_path.split('/')[-1].split('\\')[-1] if context.file_path else "archivo"
+                context_info = CHAT_CONTEXT_TEMPLATE.format(
+                    file_name=file_name,
+                    language=context.language,
+                    code=context.code[:8000]  # Limitar para no exceder tokens
+                )
+                system_content = system_content + "\n" + context_info
+            
             system_message = {
                 "role": "system",
-                "content": CHAT_SYSTEM_PROMPT.format(language=language)
+                "content": system_content
             }
             
             all_messages = [system_message] + messages
@@ -368,7 +393,19 @@ class OpenAIProvider(BaseLLMProvider):
         try:
             client = await self._get_client()
             language = context.language if context else "programación general"
-            system_msg = {"role": "system", "content": CHAT_SYSTEM_PROMPT.format(language=language)}
+            system_content = CHAT_SYSTEM_PROMPT.format(language=language)
+            
+            # Si hay contexto de código, incluirlo en el system prompt
+            if context and context.code:
+                file_name = context.file_path.split('/')[-1].split('\\')[-1] if context.file_path else "archivo"
+                context_info = CHAT_CONTEXT_TEMPLATE.format(
+                    file_name=file_name,
+                    language=context.language,
+                    code=context.code[:8000]
+                )
+                system_content = system_content + "\n" + context_info
+            
+            system_msg = {"role": "system", "content": system_content}
             
             response = await client.chat.completions.create(
                 model=self.config.openai_model,
@@ -449,12 +486,22 @@ class AnthropicProvider(BaseLLMProvider):
         try:
             client = await self._get_client()
             language = context.language if context else "programación general"
-            system_prompt = CHAT_SYSTEM_PROMPT.format(language=language)
+            system_content = CHAT_SYSTEM_PROMPT.format(language=language)
+            
+            # Si hay contexto de código, incluirlo en el system prompt
+            if context and context.code:
+                file_name = context.file_path.split('/')[-1].split('\\')[-1] if context.file_path else "archivo"
+                context_info = CHAT_CONTEXT_TEMPLATE.format(
+                    file_name=file_name,
+                    language=context.language,
+                    code=context.code[:8000]
+                )
+                system_content = system_content + "\n" + context_info
             
             response = await client.messages.create(
                 model=self.config.anthropic_model,
                 max_tokens=max_tokens,
-                system=system_prompt,
+                system=system_content,
                 messages=messages
             )
             return AIResponse(
@@ -521,8 +568,19 @@ class OllamaProvider(BaseLLMProvider):
         # Convertir mensajes a un solo prompt para Ollama
         prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
         language = context.language if context else "programación general"
-        system = CHAT_SYSTEM_PROMPT.format(language=language)
-        return await self._generate(prompt, system, max_tokens)
+        system_content = CHAT_SYSTEM_PROMPT.format(language=language)
+        
+        # Si hay contexto de código, incluirlo
+        if context and context.code:
+            file_name = context.file_path.split('/')[-1].split('\\')[-1] if context.file_path else "archivo"
+            context_info = CHAT_CONTEXT_TEMPLATE.format(
+                file_name=file_name,
+                language=context.language,
+                code=context.code[:8000]
+            )
+            system_content = system_content + "\n" + context_info
+        
+        return await self._generate(prompt, system_content, max_tokens)
 
 
 class MIAEngine:
