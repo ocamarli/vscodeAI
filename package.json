@@ -1,14 +1,15 @@
 {
-    "name": "mia",
-    "displayName": "MIA - AI Code Assistant",
-    "description": "Intelligent AI-powered code assistant with autocompletion, hover explanations, and chat. Supports C, Java, and more.",
-    "version": "0.1.0",
+    "name": "bmia",
+    "displayName": "bMIA -IA Asistente de Código",
+    "description": "<> Asistente de código inteligente con IA que incluye autocompletado, explicaciones al pasar el cursor y chat. Compatible con C, Java y más.",
+    "version": "0.1.1",
     "preview": true,
+    "icon": "icon.png", 
     "serverInfo": {
-        "name": "MIA",
+        "name": "bMIA",
         "module": "mia"
     },
-    "publisher": "misa-dev",
+    "publisher": "Misa-dev-bSide",
     "license": "MIT",
     "homepage": "https://github.com/misa-dev/mia-extension",
     "repository": {
@@ -201,6 +202,11 @@
         },
         "commands": [
             {
+                "command": "mia.showKnowledgeSources",
+                "title": "MIA: Show Knowledge Sources",
+                "category": "MIA"
+            },
+            {
                 "command": "mia.restart",
                 "title": "Restart MIA Server",
                 "category": "MIA"
@@ -279,18 +285,19 @@
     },
     "devDependencies": {
         "@types/fs-extra": "^11.0.4",
-        "@types/vscode": "1.78.0",
         "@types/glob": "^8.1.0",
         "@types/node": "20.x",
+        "@types/vscode": "1.78.0",
         "@typescript-eslint/eslint-plugin": "^6.17.0",
         "@typescript-eslint/parser": "^6.17.0",
         "@vscode/test-electron": "^2.3.8",
-        "@vscode/vsce": "^2.22.0",
+        "@vscode/vsce": "^2.32.0",
+        "copy-webpack-plugin": "^13.0.1",
         "eslint": "^8.56.0",
         "glob": "^10.3.10",
         "prettier": "^3.1.1",
-        "typescript": "^5.3.3",
         "ts-loader": "^9.5.1",
+        "typescript": "^5.3.3",
         "webpack": "^5.89.0",
         "webpack-cli": "^5.1.4"
     }

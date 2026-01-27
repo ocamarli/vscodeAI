@@ -3,12 +3,12 @@
 # Copyright (c) 2024 MIA Project
 # Licensed under the MIT License.
 """
-MIA - AI Code Assistant
-A powerful AI-powered code assistant for VS Code.
+bMIA - bSide Code Assistant
+Asistente de código con IA para VS Code
 """
 
 __version__ = "0.1.0"
-__author__ = "MIA Project"
+__author__ = "Misael Martínez Ocampo"
 
 
 

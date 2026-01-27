@@ -203,7 +203,6 @@ function getDiffPreviewHtml(originalCode: string, newCode: string, fileName: str
             padding: 10px 0;
         }
         
-        /* Hunk styles */
         .hunk {
             margin: 10px 15px;
             border: 1px solid var(--vscode-panel-border);
@@ -363,10 +362,8 @@ function getDiffPreviewHtml(originalCode: string, newCode: string, fileName: str
         const originalCode = ${JSON.stringify(originalCode)};
         const newCode = ${JSON.stringify(newCode)};
         
-        // Estado de los hunks
         let hunks = [];
         
-        // Algoritmo LCS para encontrar diferencias
         function computeLCS(a, b) {
             const m = a.length;
             const n = b.length;
@@ -418,10 +415,8 @@ function getDiffPreviewHtml(originalCode: string, newCode: string, fileName: str
                 
                 if (line.type === 'context') {
                     if (currentHunk) {
-                        // Agregar contexto al hunk actual
                         currentHunk.lines.push(line);
                         
-                        // Verificar si hay más cambios próximos
                         let hasMoreChanges = false;
                         for (let j = i + 1; j < Math.min(i + contextLines + 1, diff.length); j++) {
                             if (diff[j].type !== 'context') {
@@ -431,7 +426,6 @@ function getDiffPreviewHtml(originalCode: string, newCode: string, fileName: str
                         }
                         
                         if (!hasMoreChanges && currentHunk.lines.filter(l => l.type !== 'context').length > 0) {
-                            // Terminar el hunk después de N líneas de contexto
                             const contextCount = currentHunk.lines.filter(l => l.type === 'context').length;
                             if (contextCount >= contextLines * 2) {
                                 hunks.push(currentHunk);
@@ -446,7 +440,6 @@ function getDiffPreviewHtml(originalCode: string, newCode: string, fileName: str
                         }
                     }
                 } else {
-                    // Línea de cambio (added o removed)
                     if (!currentHunk) {
                         currentHunk = {
                             id: 'hunk-' + hunks.length,
@@ -489,7 +482,6 @@ function getDiffPreviewHtml(originalCode: string, newCode: string, fileName: str
                 hunkDiv.className = 'hunk' + (hunk.status !== 'pending' ? ' ' + hunk.status : '');
                 hunkDiv.id = hunk.id;
                 
-                // Header del hunk
                 const addedCount = hunk.lines.filter(l => l.type === 'added').length;
                 const removedCount = hunk.lines.filter(l => l.type === 'removed').length;
                 
@@ -515,7 +507,6 @@ function getDiffPreviewHtml(originalCode: string, newCode: string, fileName: str
                     </div>
                 \`;
                 
-                // Contenido del hunk
                 let contentHtml = '<div class="hunk-content">';
                 hunk.lines.forEach(line => {
                     const lineClass = 'diff-line ' + line.type;
@@ -592,23 +583,19 @@ function getDiffPreviewHtml(originalCode: string, newCode: string, fileName: str
             const oldLines = originalCode.split('\\n');
             const newLines = newCode.split('\\n');
             
-            // Si todos los hunks son aceptados, usar el código nuevo
             const allAccepted = hunks.every(h => h.status === 'accepted');
             if (allAccepted) {
                 return newCode;
             }
             
-            // Si todos los hunks son rechazados, usar el código original
             const allRejected = hunks.every(h => h.status === 'rejected');
             if (allRejected) {
                 return originalCode;
             }
             
-            // Construir código mezclado
             const diff = computeDiff(originalCode, newCode);
             const result = [];
             
-            // Crear un mapa de qué líneas pertenecen a qué hunk y su estado
             const lineHunkMap = new Map();
             hunks.forEach(hunk => {
                 hunk.lines.forEach(line => {
@@ -625,14 +612,12 @@ function getDiffPreviewHtml(originalCode: string, newCode: string, fileName: str
                 } else if (line.type === 'removed') {
                     const key = 'removed-' + line.oldLine;
                     const status = lineHunkMap.get(key) || 'accepted';
-                    // Si el hunk es rechazado, mantener la línea original
                     if (status === 'rejected') {
                         result.push(line.content);
                     }
                 } else if (line.type === 'added') {
                     const key = 'added-' + line.newLine;
                     const status = lineHunkMap.get(key) || 'accepted';
-                    // Si el hunk es aceptado, agregar la línea nueva
                     if (status === 'accepted') {
                         result.push(line.content);
                     }
@@ -659,7 +644,6 @@ function getDiffPreviewHtml(originalCode: string, newCode: string, fileName: str
             vscode.postMessage({ type: 'cancel' });
         }
         
-        // Inicializar
         const diff = computeDiff(originalCode, newCode);
         hunks = groupIntoHunks(diff);
         renderHunks();
@@ -675,6 +659,11 @@ class MIAChatViewProvider implements vscode.WebviewViewProvider {
     private _currentFileInfo: ActiveFileInfo | null = null;
     private _pendingChanges: Map<string, CodeChange> = new Map();
     private _changeCounter: number = 0;
+
+    // ✅ Estado de fuentes de conocimiento
+    private _knowledgeSources: Array<any> = [];
+    private _selectedSourceIds: Set<string> = new Set();
+    private _showSourcesPanel: boolean = false;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -707,7 +696,10 @@ class MIAChatViewProvider implements vscode.WebviewViewProvider {
         this._view = webviewView;
         webviewView.webview.options = { enableScripts: true, localResourceRoots: [this._extensionUri] };
         webviewView.webview.html = this._getHtmlForWebview();
-        setTimeout(() => this._updateFileContext(), 100);
+        setTimeout(() => {
+            this._updateFileContext();
+            this._loadKnowledgeSources();
+        }, 100);
 
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.type) {
@@ -728,10 +720,64 @@ class MIAChatViewProvider implements vscode.WebviewViewProvider {
                 case 'requestFileContext':
                     this._updateFileContext();
                     break;
+                case 'toggleSourcesPanel':
+                    this._showSourcesPanel = !this._showSourcesPanel;
+                    this._view?.webview.postMessage({
+                        type: 'updateSourcesPanel',
+                        show: this._showSourcesPanel,
+                    });
+                    break;
+                case 'toggleSource':
+                    this._toggleSource(data.sourceId);
+                    break;
+                case 'refreshSources':
+                    await this._loadKnowledgeSources();
+                    break;
             }
         });
     }
 
+    // ✅ Cargar fuentes desde el servidor
+    private async _loadKnowledgeSources() {
+        const client = this._getClient();
+        if (!client) {
+            return;
+        }
+
+        try {
+            const result = (await client.sendRequest('workspace/executeCommand', {
+                command: 'mia.getKnowledgeSources',
+                arguments: [],
+            })) as any;
+
+            if (result.success) {
+                this._knowledgeSources = result.sources;
+                this._view?.webview.postMessage({
+                    type: 'updateKnowledgeSources',
+                    sources: this._knowledgeSources,
+                    selectedIds: Array.from(this._selectedSourceIds),
+                });
+            }
+        } catch (error) {
+            console.error('Error loading knowledge sources:', error);
+        }
+    }
+
+    // ✅ Toggle selección de fuente
+    private _toggleSource(sourceId: string) {
+        if (this._selectedSourceIds.has(sourceId)) {
+            this._selectedSourceIds.delete(sourceId);
+        } else {
+            this._selectedSourceIds.add(sourceId);
+        }
+
+        this._view?.webview.postMessage({
+            type: 'updateSelection',
+            selectedIds: Array.from(this._selectedSourceIds),
+        });
+    }
+
+    // ✅ Separar source_ids y project_ids antes de enviar
     private async _handleChatMessage(message: string, includeFile: boolean = true) {
         const client = this._getClient();
         if (!client) {
@@ -742,6 +788,7 @@ class MIAChatViewProvider implements vscode.WebviewViewProvider {
         this._currentFileInfo = getActiveFileInfo();
         let context = null;
 
+        // Construir contexto de archivo si está habilitado
         if (includeFile && this._currentFileInfo) {
             const fileInfo = this._currentFileInfo;
             const codeToInclude = fileInfo.selectedText || fileInfo.content;
@@ -762,21 +809,66 @@ class MIAChatViewProvider implements vscode.WebviewViewProvider {
                 ? `📎 [Código seleccionado de ${fileInfo.fileName}]`
                 : `📄 [Archivo: ${fileInfo.fileName}]`;
 
-            this._addMessage('user', `${message}\n\n${contextIndicator}`);
+            const sourcesIndicator =
+                this._selectedSourceIds.size > 0
+                    ? `\n📚 [Consultando ${this._selectedSourceIds.size} fuente(s) de conocimiento]`
+                    : '';
+
+            this._addMessage('user', `${message}\n\n${contextIndicator}${sourcesIndicator}`);
         } else {
-            this._addMessage('user', message);
+            const sourcesIndicator =
+                this._selectedSourceIds.size > 0
+                    ? `\n\n📚 [Consultando ${this._selectedSourceIds.size} fuente(s) de conocimiento]`
+                    : '';
+            this._addMessage('user', `${message}${sourcesIndicator}`);
         }
 
         this._messages.push({ role: 'user', content: message });
 
         try {
+            // ✅ SEPARAR por tipo (source vs project)
+    console.log('🔍 [DEBUG] _selectedSourceIds:', Array.from(this._selectedSourceIds));
+    console.log('🔍 [DEBUG] _knowledgeSources:', this._knowledgeSources);
+                
+            const sourceIds: string[] = [];
+            const projectIds: string[] = [];
+
+            Array.from(this._selectedSourceIds).forEach((id) => {
+                const item = this._knowledgeSources.find((s) => s.id === id);
+                if (item?.itemType === 'project') {
+                    projectIds.push(id);
+                } else {
+                    sourceIds.push(id);
+                }
+            });
+            console.log('📊 [EXTENSION] Enviando al servidor:');
+            console.log('   - sourceIds:', sourceIds);
+            console.log('   - projectIds:', projectIds);
+            console.log('   - selectedSourceIds:', Array.from(this._selectedSourceIds));
+            console.log('   - knowledgeSources:', this._knowledgeSources);
+            // ✅ Enviar ambos arrays separados
             const response = (await client.sendRequest('workspace/executeCommand', {
                 command: 'mia.chat',
-                arguments: [this._messages, context],
+                arguments: [
+                    this._messages,
+                    context,
+                    sourceIds, // Fuentes de documentación
+                    projectIds, // Proyectos de código
+                ],
             })) as any;
 
             if (response.success) {
-                this._processResponseForChanges(response.content);
+                let responseContent = response.content;
+                if (response.sources && response.sources.length > 0) {
+                    const metadata = `\n\n---\n📊 **Fuentes consultadas:** ${response.sources.join(
+                        ', ',
+                    )}\n📦 **Chunks analizados:** ${response.chunksAnalyzed || 0} | 🎯 **Tokens:** ${
+                        response.tokensUsed || 0
+                    }`;
+                    responseContent += metadata;
+                }
+
+                this._processResponseForChanges(responseContent);
                 this._messages.push({ role: 'assistant', content: response.content });
             } else {
                 this._addMessage('system', `Error: ${response.error || 'Error desconocido'}`);
@@ -863,60 +955,279 @@ class MIAChatViewProvider implements vscode.WebviewViewProvider {
     <title>MIA Chat</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background-color: var(--vscode-editor-background); height: 100vh; display: flex; flex-direction: column; }
-        .header { padding: 10px; border-bottom: 1px solid var(--vscode-panel-border); display: flex; justify-content: space-between; align-items: center; }
+        body { 
+            font-family: var(--vscode-font-family); 
+            font-size: var(--vscode-font-size); 
+            color: var(--vscode-foreground); 
+            background-color: var(--vscode-editor-background); 
+            height: 100vh; 
+            display: flex; 
+            flex-direction: column; 
+        }
+        
+        .header { 
+            padding: 10px; 
+            border-bottom: 1px solid var(--vscode-panel-border); 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+        }
         .header h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; }
         .header h3::before { content: "✨"; }
-        .clear-btn { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; padding: 4px 8px; cursor: pointer; border-radius: 3px; font-size: 12px; }
-        .file-context { padding: 8px 10px; background-color: var(--vscode-editor-inactiveSelectionBackground); border-bottom: 1px solid var(--vscode-panel-border); font-size: 11px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        
+        .header-actions {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .clear-btn, .knowledge-btn { 
+            background: var(--vscode-button-secondaryBackground); 
+            color: var(--vscode-button-secondaryForeground); 
+            border: none; 
+            padding: 4px 8px; 
+            cursor: pointer; 
+            border-radius: 3px; 
+            font-size: 12px; 
+        }
+        
+        .knowledge-btn.active {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+        
+        .sources-panel {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
+        }
+        
+        .sources-panel.expanded {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .sources-header {
+            padding: 8px 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            background-color: var(--vscode-editor-background);
+        }
+        
+        .sources-header h4 {
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .sources-stats {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+        }
+        
+        .refresh-btn {
+            background: transparent;
+            border: none;
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            font-size: 14px;
+            padding: 2px 6px;
+        }
+        
+        .sources-list {
+            padding: 8px;
+        }
+        
+        .source-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            margin-bottom: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .source-item:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+        
+        .source-item.selected {
+            background-color: var(--vscode-list-activeSelectionBackground);
+        }
+        
+        .source-checkbox {
+            width: 14px;
+            height: 14px;
+        }
+        
+        .source-icon {
+            font-size: 16px;
+        }
+        
+        .source-title {
+            flex: 1;
+            font-size: 12px;
+        }
+        
+        .source-chunks {
+            font-size: 10px;
+            color: var(--vscode-descriptionForeground);
+        }
+        
+        .sources-empty {
+            padding: 20px;
+            text-align: center;
+            color: var(--vscode-descriptionForeground);
+            font-size: 11px;
+        }
+        
+        .file-context { 
+            padding: 8px 10px; 
+            background-color: var(--vscode-editor-inactiveSelectionBackground); 
+            border-bottom: 1px solid var(--vscode-panel-border); 
+            font-size: 11px; 
+            display: flex; 
+            align-items: center; 
+            gap: 8px; 
+            flex-wrap: wrap; 
+        }
         .file-context .file-name { font-weight: bold; color: var(--vscode-textLink-foreground); }
         .file-context .file-info { color: var(--vscode-descriptionForeground); }
-        .file-context .selection-badge { background-color: var(--vscode-badge-background); color: var(--vscode-badge-foreground); padding: 2px 6px; border-radius: 10px; font-size: 10px; }
+        .file-context .selection-badge { 
+            background-color: var(--vscode-badge-background); 
+            color: var(--vscode-badge-foreground); 
+            padding: 2px 6px; 
+            border-radius: 10px; 
+            font-size: 10px; 
+        }
         .file-context.no-file { color: var(--vscode-descriptionForeground); font-style: italic; }
+        
         .chat-container { flex: 1; overflow-y: auto; padding: 10px; }
         .message { margin-bottom: 12px; padding: 8px 12px; border-radius: 8px; max-width: 95%; }
         .message.user { background-color: var(--vscode-button-background); color: var(--vscode-button-foreground); margin-left: auto; }
         .message.assistant { background-color: var(--vscode-editor-inactiveSelectionBackground); }
-        .message.system { background-color: var(--vscode-inputValidation-warningBackground); color: var(--vscode-inputValidation-warningForeground); font-style: italic; text-align: center; max-width: 100%; }
-        .changes-link { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 10px; background-color: var(--vscode-editor-inactiveSelectionBackground); border-radius: 6px; border-left: 3px solid var(--vscode-textLink-foreground); }
+        .message.system { 
+            background-color: var(--vscode-inputValidation-warningBackground); 
+            color: var(--vscode-inputValidation-warningForeground); 
+            font-style: italic; 
+            text-align: center; 
+            max-width: 100%; 
+        }
+        
+        .changes-link { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 8px; 
+            margin-top: 10px; 
+            padding: 10px; 
+            background-color: var(--vscode-editor-inactiveSelectionBackground); 
+            border-radius: 6px; 
+            border-left: 3px solid var(--vscode-textLink-foreground); 
+        }
         .changes-link-header { display: flex; align-items: center; gap: 8px; font-weight: bold; color: var(--vscode-textLink-foreground); }
         .changes-link-info { font-size: 11px; color: var(--vscode-descriptionForeground); }
         .changes-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
         .change-btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 5px; }
         .change-btn.view { background-color: var(--vscode-button-background); color: var(--vscode-button-foreground); }
         .change-btn.copy { background-color: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-        .input-container { padding: 10px; border-top: 1px solid var(--vscode-panel-border); display: flex; flex-direction: column; gap: 8px; }
+        
+        .input-container { 
+            padding: 10px; 
+            border-top: 1px solid var(--vscode-panel-border); 
+            display: flex; 
+            flex-direction: column; 
+            gap: 8px; 
+        }
         .input-options { display: flex; align-items: center; gap: 8px; font-size: 11px; }
         .input-options label { display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--vscode-descriptionForeground); }
         .input-row { display: flex; gap: 8px; }
-        #messageInput { flex: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 4px; resize: none; min-height: 36px; max-height: 120px; }
-        #sendBtn { background-color: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px; }
+        
+        #messageInput { 
+            flex: 1; 
+            padding: 8px; 
+            border: 1px solid var(--vscode-input-border); 
+            background-color: var(--vscode-input-background); 
+            color: var(--vscode-input-foreground); 
+            border-radius: 4px; 
+            resize: none; 
+            min-height: 36px; 
+            max-height: 120px; 
+        }
+        
+        #sendBtn { 
+            background-color: var(--vscode-button-background); 
+            color: var(--vscode-button-foreground); 
+            border: none; 
+            padding: 8px 16px; 
+            cursor: pointer; 
+            border-radius: 4px; 
+        }
         #sendBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
         .typing-indicator { display: none; padding: 8px 12px; color: var(--vscode-descriptionForeground); }
         .typing-indicator.visible { display: block; }
+        
         .welcome { text-align: center; padding: 20px; color: var(--vscode-descriptionForeground); }
         .welcome h4 { margin-bottom: 10px; }
         .welcome p { font-size: 12px; margin-bottom: 8px; }
     </style>
 </head>
 <body>
-    <div class="header"><h3>MIA Chat</h3><button class="clear-btn" onclick="clearChat()">Limpiar</button></div>
-    <div class="file-context no-file" id="fileContext"><span>📄</span><span>No hay archivo abierto</span></div>
+    <div class="header">
+        <h3>MIA Chat</h3>
+        <div class="header-actions">
+            <button class="knowledge-btn" id="knowledgeBtn" onclick="toggleSourcesPanel()">📚 Fuentes</button>
+            <button class="clear-btn" onclick="clearChat()">Limpiar</button>
+        </div>
+    </div>
+    
+    <div class="sources-panel" id="sourcesPanel">
+        <div class="sources-header">
+            <h4>📚 Base de Conocimiento</h4>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="sources-stats" id="sourcesStats">0 seleccionadas</span>
+                <button class="refresh-btn" onclick="refreshSources()" title="Recargar">↻</button>
+            </div>
+        </div>
+        <div class="sources-list" id="sourcesList">
+            <div class="sources-empty">Cargando fuentes...</div>
+        </div>
+    </div>
+    
+    <div class="file-context no-file" id="fileContext">
+        <span>📄</span>
+        <span>No hay archivo abierto</span>
+    </div>
+    
     <div class="chat-container" id="chatContainer">
         <div class="welcome">
             <h4>👋 ¡Bienvenido a MIA!</h4>
             <p>Pídeme que mejore, corrija o refactorice tu código.</p>
-            <p>Los cambios se mostrarán en una vista previa donde puedes aceptar o rechazar cada uno.</p>
+            <p>O consulta tu base de conocimiento usando el botón 📚 Fuentes</p>
         </div>
     </div>
+    
     <div class="typing-indicator" id="typingIndicator">MIA está pensando...</div>
+    
     <div class="input-container">
-        <div class="input-options"><label><input type="checkbox" id="includeFileCheckbox" checked> Incluir archivo activo</label></div>
+        <div class="input-options">
+            <label>
+                <input type="checkbox" id="includeFileCheckbox" checked> 
+                Incluir archivo activo
+            </label>
+        </div>
         <div class="input-row">
-            <textarea id="messageInput" placeholder="Pídele a MIA que mejore tu código..." rows="1"></textarea>
+            <textarea id="messageInput" placeholder="Escribe tu mensaje..." rows="1"></textarea>
             <button id="sendBtn" onclick="sendMessage()">Enviar</button>
         </div>
     </div>
+    
     <script>
         const vscode = acquireVsCodeApi();
         const chatContainer = document.getElementById('chatContainer');
@@ -925,17 +1236,109 @@ class MIAChatViewProvider implements vscode.WebviewViewProvider {
         const typingIndicator = document.getElementById('typingIndicator');
         const fileContext = document.getElementById('fileContext');
         const includeFileCheckbox = document.getElementById('includeFileCheckbox');
-        let isWaiting = false, pendingChanges = {};
+        const sourcesPanel = document.getElementById('sourcesPanel');
+        const sourcesList = document.getElementById('sourcesList');
+        const knowledgeBtn = document.getElementById('knowledgeBtn');
+        const sourcesStats = document.getElementById('sourcesStats');
+        
+        let isWaiting = false;
+        let pendingChanges = {};
+        let knowledgeSources = [];
+        let selectedSourceIds = new Set();
+        let sourcesExpanded = false;
 
-        messageInput.addEventListener('input', function() { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px'; });
-        messageInput.addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+        messageInput.addEventListener('input', function() { 
+            this.style.height = 'auto'; 
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px'; 
+        });
+        
+        messageInput.addEventListener('keydown', function(e) { 
+            if (e.key === 'Enter' && !e.shiftKey) { 
+                e.preventDefault(); 
+                sendMessage(); 
+            } 
+        });
+
+        function toggleSourcesPanel() {
+            sourcesExpanded = !sourcesExpanded;
+            vscode.postMessage({ type: 'toggleSourcesPanel' });
+            
+            if (sourcesExpanded) {
+                sourcesPanel.classList.add('expanded');
+                knowledgeBtn.classList.add('active');
+            } else {
+                sourcesPanel.classList.remove('expanded');
+                knowledgeBtn.classList.remove('active');
+            }
+        }
+
+        function renderSources() {
+            if (knowledgeSources.length === 0) {
+                sourcesList.innerHTML = '<div class="sources-empty">No hay fuentes disponibles.<br>Agrégalas desde tu interfaz web.</div>';
+                return;
+            }
+
+            let html = '';
+            knowledgeSources.forEach(source => {
+                const isSelected = selectedSourceIds.has(source.id);
+                const selectedClass = isSelected ? 'selected' : '';
+                const checkedAttr = isSelected ? 'checked' : '';
+                
+                html += '<div class="source-item ' + selectedClass + '" onclick="toggleSource(\\'' + source.id + '\\')">';
+                html += '  <input type="checkbox" class="source-checkbox" ' + checkedAttr + ' onclick="event.stopPropagation(); toggleSource(\\'' + source.id + '\\')">';
+                html += '  <span class="source-icon">' + getSourceIcon(source.type) + '</span>';
+                html += '  <span class="source-title">' + escapeHtml(source.title) + '</span>';
+                html += '  <span class="source-chunks">' + source.chunks + ' chunks</span>';
+                html += '</div>';
+            });
+
+            sourcesList.innerHTML = html;
+            updateSourcesStats();
+        }
+
+        function getSourceIcon(type) {
+            const icons = {
+                'documentation': '📚',
+                'api': '🔌',
+                'tutorial': '🎓',
+                'troubleshooting': '🔧',
+                'best_practices': '⭐',
+                'code': '💻'
+            };
+            return icons[type] || '📄';
+        }
+
+        function toggleSource(sourceId) {
+            vscode.postMessage({ type: 'toggleSource', sourceId });
+        }
+
+        function updateSourcesStats() {
+            const count = selectedSourceIds.size;
+            const totalChunks = knowledgeSources
+                .filter(s => selectedSourceIds.has(s.id))
+                .reduce((sum, s) => sum + s.chunks, 0);
+            
+            sourcesStats.textContent = count + ' seleccionadas (' + totalChunks + ' chunks)';
+        }
+
+        function refreshSources() {
+            vscode.postMessage({ type: 'refreshSources' });
+        }
 
         function sendMessage() {
             const message = messageInput.value.trim();
             if (!message || isWaiting) return;
+            
             const welcome = chatContainer.querySelector('.welcome');
             if (welcome) welcome.remove();
-            vscode.postMessage({ type: 'sendMessage', message, includeFile: includeFileCheckbox.checked });
+            
+            // ✅ SIEMPRE usar 'sendMessage', el backend decide
+            vscode.postMessage({ 
+                type: 'sendMessage', 
+                message, 
+                includeFile: includeFileCheckbox.checked 
+            });
+            
             messageInput.value = '';
             messageInput.style.height = 'auto';
             isWaiting = true;
@@ -946,7 +1349,7 @@ class MIAChatViewProvider implements vscode.WebviewViewProvider {
         function clearChat() {
             vscode.postMessage({ type: 'clearChat' });
             pendingChanges = {};
-            chatContainer.innerHTML = '<div class="welcome"><h4>👋 ¡Bienvenido a MIA!</h4><p>Pídeme que mejore tu código.</p></div>';
+            chatContainer.innerHTML = '<div class="welcome"><h4>👋 ¡Bienvenido a MIA!</h4><p>Pídeme que mejore tu código o consulta tu base de conocimiento.</p></div>';
         }
 
         function updateFileContext(data) {
@@ -959,34 +1362,63 @@ class MIAChatViewProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
+        function escapeHtml(text) { 
+            const div = document.createElement('div'); 
+            div.textContent = text; 
+            return div.innerHTML; 
+        }
 
         function addMessage(role, content) {
             const welcome = chatContainer.querySelector('.welcome');
             if (welcome) welcome.remove();
+            
             const div = document.createElement('div');
             div.className = 'message ' + role;
-            div.innerHTML = content.replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>').replace(/\`([^\`]+)\`/g, '<code>$1</code>').replace(/\\n/g, '<br>');
+            div.innerHTML = content
+                .replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>')
+                .replace(/\`([^\`]+)\`/g, '<code>$1</code>')
+                .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
+                .replace(/\\n/g, '<br>');
+            
             chatContainer.appendChild(div);
             chatContainer.scrollTop = chatContainer.scrollHeight;
-            if (role !== 'user') { isWaiting = false; sendBtn.disabled = false; typingIndicator.classList.remove('visible'); }
+            
+            if (role !== 'user') { 
+                isWaiting = false; 
+                sendBtn.disabled = false; 
+                typingIndicator.classList.remove('visible'); 
+            }
         }
 
         function addMessageWithChangeLink(role, content, changes, hasChanges) {
             const welcome = chatContainer.querySelector('.welcome');
             if (welcome) welcome.remove();
+            
             const div = document.createElement('div');
             div.className = 'message ' + role;
             
-            let html = content.replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, (m, lang, code) => '<div style="background:var(--vscode-textCodeBlock-background);padding:8px;border-radius:4px;margin:5px 0;font-size:11px;">📝 Código sugerido (' + code.trim().split('\\n').length + ' líneas)</div>');
-            html = html.replace(/\`([^\`]+)\`/g, '<code>$1</code>').replace(/\\n/g, '<br>');
+            let html = content
+                .replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, function(m, lang, code) {
+                    return '<div style="background:var(--vscode-textCodeBlock-background);padding:8px;border-radius:4px;margin:5px 0;font-size:11px;">📝 Código sugerido (' + code.trim().split('\\n').length + ' líneas)</div>';
+                })
+                .replace(/\`([^\`]+)\`/g, '<code>$1</code>')
+                .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
+                .replace(/\\n/g, '<br>');
+            
             div.innerHTML = html;
             
             if (hasChanges && changes.length > 0) {
                 changes.forEach(c => { pendingChanges[c.id] = c; });
+                
                 const link = document.createElement('div');
                 link.className = 'changes-link';
-                link.innerHTML = '<div class="changes-link-header"><span>🔀</span><span>' + changes.length + ' cambio(s) sugerido(s)</span></div><div class="changes-link-info">Abre la vista previa para revisar y aceptar/rechazar cada cambio.</div><div class="changes-buttons">' + changes.map((c,i) => '<button class="change-btn view" onclick="viewChanges(\\'' + c.id + '\\')">👁 Ver cambios' + (changes.length > 1 ? ' ' + (i+1) : '') + '</button>').join('') + '<button class="change-btn copy" onclick="copyAllCode()">📋 Copiar</button></div>';
+                
+                let buttonsHtml = '';
+                changes.forEach((c, i) => {
+                    buttonsHtml += '<button class="change-btn view" onclick="viewChanges(\\'' + c.id + '\\')">👁 Ver cambios' + (changes.length > 1 ? ' ' + (i+1) : '') + '</button>';
+                });
+                
+                link.innerHTML = '<div class="changes-link-header"><span>🔀</span><span>' + changes.length + ' cambio(s) sugerido(s)</span></div><div class="changes-link-info">Abre la vista previa para revisar y aceptar/rechazar cada cambio.</div><div class="changes-buttons">' + buttonsHtml + '<button class="change-btn copy" onclick="copyAllCode()">📋 Copiar</button></div>';
                 div.appendChild(link);
             }
             
@@ -997,15 +1429,37 @@ class MIAChatViewProvider implements vscode.WebviewViewProvider {
             typingIndicator.classList.remove('visible');
         }
 
-        function viewChanges(id) { vscode.postMessage({ type: 'viewChanges', changeId: id }); }
-        function copyAllCode() { vscode.postMessage({ type: 'copyCode', code: Object.values(pendingChanges).map(c => c.newCode).join('\\n\\n') }); }
+        function viewChanges(id) { 
+            vscode.postMessage({ type: 'viewChanges', changeId: id }); 
+        }
+        
+        function copyAllCode() { 
+            vscode.postMessage({ 
+                type: 'copyCode', 
+                code: Object.values(pendingChanges).map(c => c.newCode).join('\\n\\n') 
+            }); 
+        }
 
         window.addEventListener('message', e => {
             const d = e.data;
-            if (d.type === 'addMessage') addMessage(d.role, d.content);
-            else if (d.type === 'addMessageWithChangeLink') addMessageWithChangeLink(d.role, d.content, d.changes || [], d.hasChanges);
-            else if (d.type === 'updateChat') { chatContainer.innerHTML = ''; d.messages.forEach(m => addMessage(m.role, m.content)); }
-            else if (d.type === 'updateFileContext') updateFileContext(d);
+            
+            if (d.type === 'addMessage') {
+                addMessage(d.role, d.content);
+            } else if (d.type === 'addMessageWithChangeLink') {
+                addMessageWithChangeLink(d.role, d.content, d.changes || [], d.hasChanges);
+            } else if (d.type === 'updateChat') { 
+                chatContainer.innerHTML = ''; 
+                d.messages.forEach(m => addMessage(m.role, m.content)); 
+            } else if (d.type === 'updateFileContext') {
+                updateFileContext(d);
+            } else if (d.type === 'updateKnowledgeSources') {
+                knowledgeSources = d.sources;
+                selectedSourceIds = new Set(d.selectedIds);
+                renderSources();
+            } else if (d.type === 'updateSelection') {
+                selectedSourceIds = new Set(d.selectedIds);
+                renderSources();
+            }
         });
 
         vscode.postMessage({ type: 'requestFileContext' });
@@ -1117,7 +1571,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
     });
 }
-
 export async function deactivate(): Promise<void> {
     if (lsClient) await lsClient.stop();
 }

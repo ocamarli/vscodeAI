@@ -1,3 +1,10 @@
+# Incluir bundled explícitamente
+!bundled/
+!bundled/tool/
+!bundled/tool/**
+!bundled/libs/
+!bundled/libs/**
+
 .vscode/**
 .vscode-test/**
 out/**
